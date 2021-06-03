@@ -1,0 +1,85 @@
+---
+title: "Restauración Forestal"
+author: "PROAmazonía"
+date: "2/6/2021"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+https://github.com/hvproano/restauracion
+
+This R Markdown document is made interactive using Shiny. Unlike the more traditional workflow of creating static reports, you can now create documents that allow your readers to change the assumptions underlying your analysis and see the results immediately. 
+
+To learn more, see [Interactive Documents](http://rmarkdown.rstudio.com/authoring_shiny.html).
+
+## Inputs and Outputs
+
+You can embed Shiny inputs and outputs in your document. Outputs are automatically updated whenever inputs change.  This demonstrates how a standard R plot can be made interactive by wrapping it in the Shiny `renderPlot` function. The `selectInput` and `sliderInput` functions create the input widgets used to drive the plot.
+
+```{r levantamiento, echo=FALSE, message=FALSE}
+inputPanel(
+  selectInput("n_breaks", label = "Number of bins:",
+              choices = c(10, 20, 35, 50), selected = 20),
+  
+  selectInput("tecnico", label = "Responsable", choices = c("Todos","Alejandro", "Vladimir",
+                                                            "Fernando"),
+              selected = "Todos"),
+  dateInput("DateInic", label = "Fecha de inicio", value = Sys.Date(), format = "yyyy-mm-dd", 
+            min = '2021-05-31'),
+  dateInput("DateFin", label = "Fecha de fin", value = Sys.Date(), format = "yyyy-mm-dd", 
+            min = '2021-05-31'),
+  
+  sliderInput("bw_adjust", label = "Bandwidth adjustment:",
+              min = 0.2, max = 2, value = 1, step = 0.2)
+)
+
+library(googlesheets4)
+
+gs4_deauth()
+# suppressPackageStartupMessages(library(dplyr))
+# gs_gap_key() %>%
+#   gs_key(lookup = FALSE) %>% 
+#   gs_read() %>% 
+#   head(3)
+
+url01 <- "https://docs.google.com/spreadsheets/d/1Xhc7on5P6OxBw_vcWhLtZHtV50LcVxA6zMZM_HDn0DA/edit?usp=sharing"
+
+url02 <- "https://docs.google.com/spreadsheets/d/10f20WsNA_ehboIf0lpB5CNrtoFVhyaOcrsXwkEfDlZA/edit?usp=sharing"
+
+formulario <- read_sheet(url01)
+plantas <- read_sheet(url01, sheet = "data-InfoPlantas")
+responsable <- read_sheet(url02)
+
+renderPlot({
+  hist(faithful$eruptions, probability = TRUE, breaks = as.numeric(input$n_breaks),
+       xlab = "Duration (minutes)", main = "Geyser eruption duration")
+  
+  dens <- density(faithful$eruptions, adjust = input$bw_adjust)
+  lines(dens, col = "blue")
+})
+```
+
+## Embedded Application
+
+It's also possible to embed an entire Shiny application within an R Markdown document using the `shinyAppDir` function. This example embeds a Shiny application located in another directory:
+
+```{r tabsets, echo=FALSE}
+shinyAppDir(
+  system.file("examples/06_tabsets", package = "shiny"),
+  options = list(
+    width = "100%", height = 550
+  )
+)
+```
+
+Note the use of the `height` parameter to determine how much vertical space the embedded application should occupy.
+
+You can also use the `shinyApp` function to define an application inline rather then in an external directory.
+
+In all of R code chunks above the `echo = FALSE` attribute is used. This is to prevent the R code within the chunk from rendering in the document alongside the Shiny components.
+
+
+
