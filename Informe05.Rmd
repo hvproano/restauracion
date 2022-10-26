@@ -1,0 +1,832 @@
+---
+title: |
+  ![](logoPROAmazonia_Altropico.png){width=10in}  
+  Restauración forestal - Proyecto PROAmazonía
+output: html_document
+runtime: shiny
+---
+<div>
+
+</div>
+
+<br />
+
+```{r setup, include=FALSE, echo=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library("RCurl")
+library(dplyr)
+library(DT)
+library(tidyr)
+library(ggplot2)
+library(tools)
+
+mycols <- c("#0073C2FF", "#EFC000FF", "#868686FF", "#CD534CFF")
+
+##    Carga de información
+
+link01 <- "https://docs.google.com/spreadsheets/d/e/2PACX-1vSdqEg2NGGa4NnWQzvuczKWnSGgI3R_jbh6yHHH7b9c1wAXqbhk-ezAbyyywaVcljJ33p6QmwE3HU9v/pub?gid=0&single=true&output=csv"
+  
+link02 <- "https://docs.google.com/spreadsheets/d/e/2PACX-1vSdqEg2NGGa4NnWQzvuczKWnSGgI3R_jbh6yHHH7b9c1wAXqbhk-ezAbyyywaVcljJ33p6QmwE3HU9v/pub?gid=1845751721&single=true&output=csv"
+
+link03 <- "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4xlQwBECGSudbKru3zup0lH-YZdwB5BD7YLSUdkYWVDTNrm1nRfbx0-ATwh9hFUBhXPCFx0mQnQGP/pub?output=csv"
+
+link04 <- "https://docs.google.com/spreadsheets/d/e/2PACX-1vTPtCVn0efHwpKuso4F-ytKbI_piaRLmls5dZra8x3gBC2G6Iav_bZUfNAZ7eas-0rUxKMxocq3-RV4/pub?gid=0&single=true&output=csv"
+
+link05 <- "https://docs.google.com/spreadsheets/d/e/2PACX-1vRr8KNFyCgRW6zbU_1ncDEHVDoGSA85zjfciJvNhVJszPcO8YxOZUJiXTAAESusTGDc6ybodmURki4K/pub?gid=0&single=true&output=csv"
+
+link06 <- "https://docs.google.com/spreadsheets/d/e/2PACX-1vQQxxBJDJIxaA1dX6g4BAwLlJgzz1-mNl_nCCOJH1pZB_Wd46uSHmNTPtpGbymiVY_5cKtQFMsZVH7O/pub?gid=0&single=true&output=csv"
+
+formulario = read.csv2(link01, sep=",", header = TRUE, encoding = "UTF-8", stringsAsFactors = FALSE)
+plantas <- read.csv2(link02,sep = ",", header = TRUE, encoding = "UTF-8", stringsAsFactors = FALSE)
+responsable <- read.csv2(link03,sep = ",", header = TRUE, encoding = "UTF-8", stringsAsFactors = FALSE)
+ubicac <- read.csv2(link04,sep = ",", header = TRUE, encoding = "UTF-8", stringsAsFactors = FALSE)
+comunidad <- read.csv2(link05,sep = ",", header = TRUE, encoding = "UTF-8", stringsAsFactors = FALSE)
+especie <- read.csv2(link06,sep = ",", header = TRUE, encoding = "UTF-8", stringsAsFactors = FALSE)
+
+beneficiario <- read.csv2("beneficiarios.csv", header = TRUE, encoding = "UTF-8", stringsAsFactors = FALSE, colClasses = "character")
+
+names(beneficiario)[1] <- "organizacion"
+
+rm(link01,link02,link03, link04, link05, link06)
+
+formulario$data.start <- as.POSIXct(formulario$data.start, format = "%d/%m/%y %H:%M")
+formulario$data.end <- as.POSIXct(formulario$data.end, format = "%d/%m/%y %H:%M")
+formulario$data.today <- as.POSIXct(formulario$data.today, format = "%d/%m/%y")
+
+
+n <- nrow(formulario)
+formulario$data.beneficiario.cedulaBeneficiario <- ""
+formulario$idComunidad <-0
+
+for(i in 1:n) {
+  
+  if(!is.na(formulario[i,]$data.ubicacion.ComunidadPKR)) {
+    formulario[i,]$idComunidad <- formulario[i,]$data.ubicacion.ComunidadPKR
+  } else {
+    if(!is.na(formulario[i,]$data.ubicacion.ComunidadCanelos)) {
+      formulario[i,]$idComunidad <- formulario[i,]$data.ubicacion.ComunidadCanelos
+      } else {
+        formulario[i,]$idComunidad <- formulario[i,]$data.ubicacion.ComunidadSanJacinto
+      }
+  }
+  
+  for(j in 9:68) {
+    if(!is.na(formulario[i,j])) {
+      formulario[i,]$data.beneficiario.cedulaBeneficiario <- formulario[i,j]
+    }
+  }
+}
+
+rm(i,j,n)
+
+formulario <- formulario[,-c(6:68)]
+names(formulario)[5] <- "idComuna_org"
+
+formulario <- formulario %>%
+  left_join(comunidad[comunidad$tipo==1,c(1,2)], by = c("idComuna_org" = "id"))
+
+names(formulario)[ncol(formulario)] <- "Comuna_org"
+
+formulario <- formulario %>%
+  left_join(comunidad[,c(1,2)], by = c("idComunidad" = "id"))
+
+names(formulario)[ncol(formulario)] <- "Comunidad"
+
+idAccion <- c(1:3)
+Accion <- c("Plantación", "Localización", "Mantenimiento")
+acciones <- data.frame(idAccion, Accion)
+rm(idAccion, Accion)
+
+formulario <- formulario %>%
+  left_join(acciones, by = c("data.AccionMonitorear" = "idAccion"))
+
+formulario <- formulario %>%
+  left_join(beneficiario[,c(2:6)], by = c("data.beneficiario.cedulaBeneficiario" = "cedula"))
+
+
+#############################################################################################
+#####
+#####                     Plantas
+#####
+################################################################################################
+
+plantas$data.InfoPlantas.grupoEstado.Estado_de_la_planta <- unlist(lapply(plantas$data.InfoPlantas.grupoEstado.Estado_de_la_planta, FUN = toTitleCase))
+
+plantas$data.InfoPlantas.grupoEstado.Estado_de_la_planta <- gsub("_", " ", plantas$data.InfoPlantas.grupoEstado.Estado_de_la_planta)
+
+plantas$data.InfoPlantas.Estado_fitosanitario <- unlist(lapply(plantas$data.InfoPlantas.Estado_fitosanitario, FUN = toTitleCase))
+
+plantas$data.InfoPlantas.Estado_fitosanitario <- gsub("_", " ", plantas$data.InfoPlantas.Estado_fitosanitario)
+
+
+names(plantas)[6] <- "EstadoPlanta"
+names(plantas)[7] <- "reposiciones"
+names(plantas)[1] <- "idEspecie"
+
+plantas <- plantas %>%
+  left_join(especie, by = c("idEspecie" = "id"))
+
+for (i in 1:nrow(plantas)) {
+  if(plantas[i,1] == 999) {
+    m<-nrow(especie)
+    especie[m+1,1]<-m+1
+    especie[m+1,4]<- plantas[i,2]
+    plantas[i,1] <- m+1
+    plantas[i,19]<-plantas[i,2]
+  }
+}
+
+plantas$data.InfoPlantas.Foto_planta1 <- paste0("<a href='",plantas$data.InfoPlantas.Foto_planta1,"' target='_blank'>",plantas$data.InfoPlantas.Foto_planta1,"</a>")
+
+names(plantas)[8]<-"idCoronamiento"
+names(plantas)[9]<-"idMaleza"
+names(plantas)[10]<-"idSombra"
+names(plantas)[11]<-"idlianas_bejucos"
+#names(plantas)[12]<-"idSenaletica"
+
+plantas$coronamiento <- plantas$idCoronamiento
+plantas$maleza <- plantas$idMaleza
+plantas$sombra <- plantas$idSombra
+plantas$lianas_bejucos <- plantas$idlianas_bejucos
+#plantas$senaletica <- plantas$idSenaletica
+
+for(i in 1:nrow(plantas)) {
+  if(!is.na(plantas[i,]$coronamiento)) {
+    plantas[i,]$coronamiento <- gsub("1", "Si", plantas[i,]$coronamiento)
+    plantas[i,]$coronamiento <- gsub("0", "No", plantas[i,]$coronamiento)
+  }
+  if(!is.na(plantas[i,]$maleza)) {
+    plantas[i,]$maleza <- gsub("1", "Si", plantas[i,]$maleza)
+    plantas[i,]$maleza <- gsub("0", "No", plantas[i,]$maleza)
+  }
+  if(!is.na(plantas[i,]$sombra)) {
+    plantas[i,]$sombra <- gsub("1", "Si", plantas[i,]$sombra)
+    plantas[i,]$sombra <- gsub("0", "No", plantas[i,]$sombra)
+  }
+  if(!is.na(plantas[i,]$lianas_bejucos)) {
+    plantas[i,]$lianas_bejucos <- gsub("1", "Si", plantas[i,]$lianas_bejucos)
+    plantas[i,]$lianas_bejucos <- gsub("0", "No", plantas[i,]$lianas_bejucos)
+  }
+  # if(!is.na(plantas[i,]$senaletica)) {
+  #   plantas[i,]$senaletica <- gsub("1", "Si", plantas[i,]$senaletica)
+  #   plantas[i,]$senaletica <- gsub("0", "No", plantas[i,]$senaletica)
+  # }
+}
+plantas <- plantas[,-c(2)]
+
+pp <- as.data.frame(table(plantas$PARENT_KEY, plantas$EstadoPlanta), stringsAsFactors = FALSE)
+
+names(pp)[2] <- "total "
+PlantasEstado <- spread(pp,`total `, Freq, sep= '')
+
+resumenPlantas <- plantas %>%
+  group_by(PARENT_KEY) %>%
+  summarise("totPlantas" = n(),
+            conCoronamiento = sum(idCoronamiento, na.rm = TRUE),
+            conMaleza = sum(idMaleza, na.rm = TRUE),
+            conSombra = sum(idSombra, na.rm = TRUE),
+            conLianas = sum(idlianas_bejucos, na.rm=TRUE),
+            # conSenaletica = sum(idSenaletica, na.rm = TRUE),
+            reposiciones = sum(reposiciones, na.rm = TRUE)
+            )
+
+formulario <- formulario %>%
+  left_join(resumenPlantas, by = c("KEY" = "PARENT_KEY"))
+
+formulario <- formulario %>%
+  left_join(PlantasEstado, by = c("KEY" = "Var1"))
+
+formulario$data.predio.area_muestra<-as.numeric(formulario$data.predio.area_muestra)
+
+formulario$sobrevivencia <- round(100 *(formulario$totPlantas -(formulario$`total Muerta`+formulario$`total Cortada accidentalmente`+formulario$`total Ramoneada`)+formulario$reposiciones)/formulario$totPlantas,2)
+
+formulario$densidad <- round((formulario$totPlantas -(formulario$`total Muerta`+formulario$`total Cortada accidentalmente`+formulario$`total Ramoneada`)+formulario$reposiciones)/formulario$data.predio.area_muestra,2)
+
+formulario$califica01 <- ifelse(formulario$sobrevivencia > 70,"Aprobado",
+                                ifelse(formulario$sobrevivencia > 60,"Condicionado","No se aprueba"))
+
+formulario$califica02 <- ifelse(formulario$densidad > 0.40,"Aprobado",
+                                ifelse(formulario$densidad > 0.20,"Condicionado","No se aprueba"))
+
+formulario$calificaTotal <- ifelse(formulario$califica01 == "Aprobado" &
+                                     formulario$califica02 == "Aprobado", "Aprobado",
+                                ifelse(formulario$califica01 == "No se aprueba" |
+                                         formulario$califica02 == "No se aprueba","No se aprueba", "Condicionado"))
+
+
+
+# formulario %>%
+#   group_by(califica01, califica02) %>%
+#   summarise(num = n()) %>%
+#   rename("Densidad " = califica02) %>%
+#   rename("Sobrevivencia" = califica01) %>%
+#   spread("Densidad ", num, sep= '')
+
+```
+
+<!-- https://github.com/hvproano/restauracion -->
+
+## Informe de monitoreo a beneficiarios de incentivos de restauración forestal
+
+```{r levantamiento, echo=FALSE, message=FALSE}
+inputPanel(
+  dateRangeInput('fechas','Fechas ',
+                 format = "dd/mm/yyyy", startview = "month", weekstart = 0,
+                 language = "es", separator = " - ", width = NULL),
+  
+  selectInput("comuna", label = "Comuna/Organización", 
+              choices = sort(comunidad[comunidad$id < 100,]$nombre),
+              selected = "PKR"),
+  uiOutput('comuna'),
+  
+  selectInput("accion", label = "Acción a monitorear", 
+              choices = c("Plantación", "Localización", "Mantenimiento"),
+              selected = "Plantación")
+)
+
+comunidades <- reactive({
+  comunidad %>%
+    filter(parent == input$comuna & nombre %in% unique(formulario[
+                 as.Date(formulario$data.end, format = "yyyy-mm-dd") >= as.Date(input$fechas[1], format = "yyyy-mm-dd") & 
+                 as.Date(formulario$data.end, format = "yyyy-mm-dd") <= as.Date(input$fechas[2], format = "yyyy-mm-dd"),
+    ]$Comunidad)) %>%
+    select(2)
+})
+
+# 
+# comunidad %>%
+#     filter(parent == "PKR" & nombre %in% unique(formulario$Comunidad)) %>%
+#     select(2)
+
+
+output$comuna <- renderUI({
+  selectInput("comunidad", label = "Comunidad",
+              choices = sort(comunidades()[,1]),
+              selected = "")
+})
+
+
+datos <- reactive ({
+    formulario %>%
+      filter(Comunidad == input$comunidad & Accion == input$accion &
+                 as.Date(data.end, format = "yyyy-mm-dd") >= as.Date(input$fechas[1], format = "yyyy-mm-dd") & 
+                 as.Date(data.end, format = "yyyy-mm-dd") <= as.Date(input$fechas[2], format = "yyyy-mm-dd")) %>%
+        select (31:33,3,27,28,25,30,6:21,29,34:45,22:24,46:50)
+  })
+  
+  plantasRep <- reactive({
+    plantas[plantas$PARENT_KEY %in% datos()$KEY,c(1,15:17,13,2:4,19:22,11:12,5:10)]
+  })
+
+tecnicos <- reactive({
+  datos() %>%
+    group_by(data.usuario) %>%
+    summarise(predios = n()
+              ) %>%
+    ungroup() %>%
+    left_join(responsable[,c(-3)], by = c("data.usuario"="cedula"))
+  })
+# 
+# tecnicos2 <- reactive({
+#   tecnicos() %>% 
+#     left_join(responsable[,c(-3)], by = c("data.usuario","cedula"))
+# })
+
+freqEstado <- reactive({
+  plantasRep() %>%
+    group_by(EstadoPlanta) %>%
+    summarise(num = n(),
+              .groups = 'drop') %>%
+    mutate(porc = paste0(round(num/sum(num) * 100,1), "%")
+           ) %>%
+    arrange(desc(EstadoPlanta))
+})
+
+muertesNum <- reactive({
+  if(is.na(as.integer(freqEstado()[freqEstado()$EstadoPlanta == "Muerta",2]))) {
+    as.integer(0)
+  }
+  else {
+    as.integer(freqEstado()[freqEstado()$EstadoPlanta == "Muerta",2])
+  }
+})
+ramoneadasNum <- reactive({
+  if(is.na(as.integer(freqEstado()[freqEstado()$EstadoPlanta == "Ramoneada",2]))) {
+    as.integer(0)
+  }
+  else {
+    as.integer(freqEstado()[freqEstado()$EstadoPlanta == "Ramoneada",2])
+  }
+})
+cortadasNum <- reactive({
+  if(is.na(
+    as.integer(freqEstado()[freqEstado()$EstadoPlanta == "Cortada accidentalmente",2])
+    )) {
+    as.integer(0)
+  }
+  else {
+    as.integer(freqEstado()[freqEstado()$EstadoPlanta == "Cortada accidentalmente",2])
+  }
+})
+
+plantasPerdidas <- reactive({
+  muertesNum() + ramoneadasNum() + cortadasNum()
+})
+
+reposiciones <- reactive({
+  if(is.na(sum(plantasRep()$reposiciones, na.rm = TRUE))) {
+    as.integer(0)
+  }
+  else {
+    as.integer(sum(plantasRep()$reposiciones, na.rm = TRUE))
+  }
+})
+porcReposiciones <- reactive({
+  if(plantasPerdidas() > 0){
+    paste0(as.numeric(100 * reposiciones()/plantasPerdidas()),"%")
+  }
+  else {"0%"}
+})
+
+sobrevivencia <- reactive({
+  if(plantasPerdidas() > 0){
+    paste0(
+      as.numeric(
+        round(100 * ((nrow(plantasRep()) - plantasPerdidas() + reposiciones())/nrow(plantasRep())),1)
+        ),"%"
+      )
+  }
+  else {"100%"}
+})
+
+textoInicio <- reactive({
+  if(muertesNum() > 0){
+    paste0("Se ha registrado un total de ",plantasPerdidas()," pérdidas en plantas, ya sea por que estas se encuentran ramoneadas, han sido cortadas de forma accidental, o en su defecto están muertas, esto representa el ", round(100*plantasPerdidas()/nrow(plantasRep()),1),"% del total de plantas monitoreadas. Sin embargo, se constató la reposición de ", reposiciones()," plantas,
+           lo que representa el ",porcReposiciones()," del total de estas plantas consideradas como pérdidas.")
+  }
+})
+
+aprobacion <- reactive({
+  datos() %>%
+    group_by(califica01, califica02) %>%
+    summarise(num = n()) %>%
+    rename("Densidad " = califica02) %>%
+    rename("Sobrevivencia" = califica01) %>%
+    spread("Densidad ", num, sep= '')
+})
+
+aprobadosNum <- reactive({
+  datos() %>%
+    filter(calificaTotal == "Aprobado") %>%
+    summarise(apr = n()) %>%
+    select("apr")
+})
+
+condicionadosNum <- reactive({
+  datos() %>%
+    filter(calificaTotal == "Condicionado") %>%
+    summarise(apr = n()) %>%
+    select("apr")
+})
+
+noAprobadosNum <- reactive({
+  nrow(datos()) - (condicionadosNum() + aprobadosNum())
+})
+
+```
+
+<!-- Aprobados:  -->
+<!-- `r reactive({aprobadosNum()[1,1]})` -->
+
+<!-- Condicionados:  -->
+<!-- `r reactive({condicionadosNum()[1,1]})` -->
+
+<!-- No Aprobados:  -->
+<!-- `r reactive({noAprobadosNum()[1,1]})` -->
+
+
+<!-- Muertes: -->
+<!-- `r reactive({muertesNum()})` -->
+<!-- Reposiciones: -->
+<!-- `r reactive({reposiciones()})` -->
+<!-- Porcentaje: -->
+<!-- `r reactive({porcReposiciones()})` -->
+<!-- `r reactive({textoInicio()})` -->
+<!-- Plantas perdidas: -->
+<!-- `r reactive({plantasPerdidas()})` -->
+
+<!-- Sobrevivencia: -->
+<!-- `r reactive({sobrevivencia()})` -->
+
+En la comunidad de `r reactive(input$comunidad)` de la organización `r reactive(input$comuna)` se ha efectuado el levantamiento en `r reactive({nrow(datos())})` predios de `r reactive({length(unique(datos()$data.beneficiario.cedulaBeneficiario))})`  beneficiarios. Este ejercicio lo han realizado `r reactive({nrow(tecnicos())})` técnicos del proyecto.
+
+El número de plantas que se ha registrado en el período dado es de `r reactive({nrow(plantasRep())})` plantas. Mas adelante se indicará como es su distribución por especie y el estado de las mismas.
+
+El número de monitoreos realizados por cada técnico se tiene a continuación:   
+
+<br/>
+
+<div style = "width:40%; height:auto; margin: auto;">
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, out.width ="50%" }
+renderDataTable({
+  datatable(tecnicos()[,c(3,2)], 
+            caption = htmltools::tags$caption(
+              style = 
+                'caption-side: bottom; 
+                text-align: left; 
+                font-size: 14px',
+              'Tabla 1: ', 
+              htmltools::em('Predios por responsable')
+              ),
+  rownames = FALSE,
+  colnames = c('Responsable de levantamiento','Número de predios'),
+  options = list(pageLength=10,extensions = 'FixedColumns',
+                 searching = FALSE,
+                 lengthChange = FALSE,
+                 info = FALSE
+                 )
+  )
+})
+
+```
+</div>
+
+Se puede ver la gráfica del estado de las plantas, donde podemos comprobar que existen `r reactive({freqEstado()[freqEstado()$EstadoPlanta == 'Viva en buen estado',]$num})` plantas vivas y en buen estado, lo cual representa un `r reactive({freqEstado()[freqEstado()$EstadoPlanta == 'Viva en buen estado',]$porc})`.
+`r reactive({
+  if(muertesNum() > 0) {textoInicio()}
+  else{
+  "No se han registrado plantas muertas, ramoneadas o cortadas accidentalmente en el presente monitoreo."
+  }
+}) `
+
+
+</br>
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+output$graph01 <- renderPlot({
+  ggplot(freqEstado(), aes(x=as.factor(EstadoPlanta), y= num, fill=EstadoPlanta)) +
+    geom_bar(stat = "identity", width = 0.4) +
+    coord_flip() +
+    theme_bw() +
+    theme(legend.position = "none") +
+    ggtitle("Gráfico 1: Estado de las plantas") +
+    theme(axis.title.x=element_blank(), axis.title.y=element_blank())
+    #ggsave("myplot.png", width=8, height=2, dpi=300)
+    
+})
+
+renderUI({
+  plotOutput("graph01", height = 150, width = 650)
+})
+```
+
+
+Para más detalle de todos los estados se puede ver en la siguiente tabla: 
+    
+    
+<div style = "width:40%; height:auto; margin: auto;">
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+renderDataTable({
+  datatable(freqEstado(), 
+            caption = htmltools::tags$caption(
+              style = 
+                'caption-side: bottom; 
+                text-align: left; 
+                font-size: 16px',
+              'Tabla 2: ', 
+              htmltools::em('Estado de las plantas')
+              ),
+  rownames = FALSE,
+  colnames = c('Estado','Número','Porcentaje'),
+  options = list(pageLength=7,extensions = 'FixedColumns',
+                 searching = FALSE,
+                 lengthChange = FALSE,
+                 info = FALSE
+                 )
+  )
+})
+    
+```
+</div>
+
+
+De esta información claramente se puede notar que, a nivel de la comunidad, el porcentaje de sobrevivencia es del `r reactive({sobrevivencia()})`.
+
+Nos interesa conocer el estado de las plantas, pero a nivel de beneficiario, esto lo podemos observar en la siguiente tabla.
+
+```{r}
+renderDataTable({
+  datatable(datos()[,c(7,8,37,32,34,33,36,35,31,26)], 
+            caption = htmltools::tags$caption(
+              style = 
+                'caption-side: bottom; 
+                text-align: left; 
+                font-size: 20px',
+              'Tabla 3: ', 
+              htmltools::em('Estado de plantas por beneficiario')
+              ),
+  rownames = FALSE, #filter = 'top',
+  colnames = c('Cédula','Nombre','Vivas en buen estado', 'Con plaga', 'Enfermas', 'Cortadas accidentalmente', 'Ramoneadas','Muertas','Reposiciones','Total'),
+  extensions = 'Buttons',
+  options = list(dom = 'Bfrtip',pageLength=10,extensions = 'FixedColumns',scrollX=T,
+                 buttons = c('copy', 'csv', 'excel'),#searching = FALSE,
+                 initComplete = htmlwidgets::JS(
+                   "function(settings, json) {",
+                   paste0("$(this.api().table().container()).css({'font-size': '", 6,
+                   "'});"
+                   ),
+                   "}")
+                 )
+  )
+})
+
+```
+
+
+Si se desea ver los detalles de cada uno de los predios, en la siguiente tabla podemos conocer la información de cada uno de ellos. 
+
+```{r}
+renderDataTable({
+  datatable(datos()[,c(4,7:21,27:30,26,38,24)], 
+            caption = htmltools::tags$caption(
+              style = 
+                'caption-side: bottom; 
+                text-align: left; 
+                font-size: 20px',
+              'Tabla 4: ', 
+              htmltools::em('Detalles por beneficiario')
+              ),
+  rownames = FALSE, filter = 'top',
+  colnames = c('Fecha','Cédula', 'Beneficiario','Número de predio', 'Área a ser restaurada','Área de la muestra', 'Número de plantas a ser consideradas','Señalética','Punto 1 latitud','Punto 1 longitud','Punto 2 latitud','Punto 2 longitud','Punto 3 latitud', 'Punto 3 longitud','Punto 4 latitud','Punto 4 longitud', 
+               'Con coronamiento','Presencia de maleza', 'Sombra',
+               'Lianas o bejucos' ,'Total','Responsable','Observaciones'),
+  extensions = 'Buttons',
+  options = list(dom = 'Bfrtip',pageLength=10,extensions = 'FixedColumns',scrollX=T,
+                 buttons = c('copy', 'csv', 'excel'),#searching = FALSE,
+                 initComplete = htmlwidgets::JS(
+                   "function(settings, json) {",
+                   paste0("$(this.api().table().container()).css({'font-size': '", 6,
+                   "'});"
+                   ),
+                   "}")
+                 )
+  )
+})
+```
+
+### Información a nivel de especie
+
+A continuación se puede notar un resumen de las plantas por cada especie identificada:
+
+
+```{r}
+##  Resumen de plantasRep
+library(dplyr, warn.conflicts = FALSE)
+
+# Suppress summarise info
+options(dplyr.summarise.inform = FALSE)
+
+resumenPlantas <- reactive ({
+  plantasRep() %>%
+    group_by(familia, nomCientifico,nomComun) %>%
+    summarise(Total = n(),
+              "Altura promedio" = mean(data.InfoPlantas.Altura, na.rm = TRUE),
+              "Altura mínima" = min(data.InfoPlantas.Altura, na.rm = TRUE),
+              "Altura máxima" = max(data.InfoPlantas.Altura, na.rm = TRUE),
+              "Con coronamiento" = paste0(100*sum(idCoronamiento, na.rm = TRUE)/Total,"%"),
+              "Presencia de malesa" = paste0(sum(idMaleza, na.rm = TRUE)/Total,"%"),
+              "Presencia de sombra" = paste0(sum(idSombra, na.rm = TRUE)/Total,"%"),
+              "Con lianas o bejucos" = paste0(sum(idlianas_bejucos, na.rm = TRUE)/Total,"%")
+    )
+})
+
+renderDataTable({
+  datatable(
+    resumenPlantas(), 
+    caption = htmltools::tags$caption(
+    style = 'caption-side: bottom; text-align: left; font-size: 20px',
+    'Tabla 5: ', htmltools::em('Resumen de plantas por especie')
+  ),
+  rownames = FALSE, escape = FALSE, filter = 'top',
+    colnames = c('Familia','Nombre científico','Nombre común', 'Total plantas','Altura promedio','Altura mínima','Altura máxima',
+                 'Coronamiento','Maleza','Sombra','Lianas/bejucos'),
+            extensions = 'Buttons', 
+            options = list(dom = 'Bfrtip',
+                           pageLength=10,
+                           extensions = 'FixedColumns',
+                           scrollX=T,
+                           buttons = c('copy', 'csv', 'excel'),#searching = FALSE,
+                           initComplete = htmlwidgets::JS(
+                           "function(settings, json) {",
+                           paste0("$(this.api().table().container()).css({'font-size': '", 6,
+                                  "'});"
+                                  ),
+                           "}")
+            )
+    )
+})
+```
+
+
+Un mayor detalle, de todas y cada una de las plantas que han sido registras, se encuentra a continuación, en la siguiente tabla se puede conocer el estado y la altura de cada una de ellas, en los casos en que se registró fotografías, también se puede acceder a las mismas.
+
+
+
+```{r}
+renderDataTable({
+  datatable(plantasRep()[,-c(1,5,17:20)],
+            caption = htmltools::tags$caption(
+              style = 'caption-side: bottom; text-align: left; font-size: 20px',
+              'Tabla 6: ', htmltools::em('Detalle de plantas')
+              ),
+            rownames = FALSE, escape = FALSE, filter = 'top',
+            colnames = c('Familia','Nombre científico','Nombre común','Tipo componente','Est. Fitosanitario','Altura(cm)','Coronamiento',
+                         'Maleza','Sombra','Lianas/bejucos','Estado general','Foto','Estado de la planta','Reposición'
+            ),
+            extensions = 'Buttons',
+            options = list(dom = 'Bfrtip',
+                           pageLength=10,
+                           extensions = 'FixedColumns',
+                           scrollX=T,
+                           buttons = c('copy', 'csv', 'excel'), # searching = FALSE,
+                           initComplete = htmlwidgets::JS(
+                           "function(settings, json) {",
+                           paste0("$(this.api().table().container()).css({'font-size': '", 6,
+                                  "'});"
+                                  ),
+                           "}")
+            ))
+})
+```
+
+
+
+## Aprobación para el pago del incentivo.
+
+En la siguiente tabla se visualiza el número de beneficiarios que aprueba, que se encuentra condicionado, o que no aprueba los parámetros considerados para la presente calificación.
+
+Es importante aclarar que aquellos beneficiarios cuyo monitoreo en su predio demuestra un nivel de sobrevivencia mayor al 70%, será categorizado como "Aprobado". En caso de que este nivel sea menor o igual a 70%, pero mayor a 60%, se asignará el valor "Condicionado", si el nivel es menor o igual a 60% no se aprueba el pago para dicho beneficiario.
+
+De igual manera, para considerarse la aprobación de un predio por densidad, deben haber al menos 60 plantas por hectárea, en caso de tener menos de 60 plantas pero más de 50 plantas, se considerará "Condicionado", caso contrario no se aprobará el pago.
+
+
+<div style = "width:50%; height:auto; margin: auto;">
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+renderDataTable({
+  datatable(aprobacion(), 
+            caption = htmltools::tags$caption(
+              style = 
+                'caption-side: bottom; 
+                text-align: left; 
+                font-size: 16px',
+              'Tabla 7: ', 
+              htmltools::em('Beneficiarios por nivel de aprobación')
+              ),
+  rownames = FALSE,
+  #colnames = c('Estado','Número','Porcentaje'),
+  options = list(pageLength=7,extensions = 'FixedColumns',
+                 searching = FALSE,
+                 lengthChange = FALSE,
+                 info = FALSE
+                 )
+  )
+})
+    
+```
+</div>
+
+`r reactive({
+  if(aprobadosNum()[1,1] > 0) {
+  texto02 <- "A continuación se presenta la lista de beneficiarios que aprueban al pago al considerar los dos parámetros anteriormente descritos."
+  } else {
+  "No existen beneficiarios para los que se pueda aprobar el pago en base a los parámetros indicados."
+  }
+})`
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+renderDataTable({
+  datatable(datos()[datos()$califica01 == "Aprobado" & datos()$califica02 == "Aprobado",c(7:8,41,43,42,44)], 
+            caption = htmltools::tags$caption(
+              style = 
+                'caption-side: bottom; 
+                text-align: left; 
+                font-size: 16px',
+              'Tabla 8: ', 
+              htmltools::em('Beneficiarios aprobados para el pago')
+              ),
+  rownames = FALSE,
+  colnames = c('Cédula','Nombre','Sobrevivencia','Aprobación sobrevivencia', 'Densidad', 'Aprobación densidad'),
+  options = list(pageLength=7,extensions = 'FixedColumns',
+                 searching = FALSE,
+                 lengthChange = FALSE,
+                 info = FALSE
+                 )
+  )
+})
+
+```
+
+
+`r reactive({
+  if(condicionadosNum()[1,1] > 0) {
+  texto02 <- "Aquellos beneficiarios que entran en la categoría de condicionados para el pago, son los siguientes:"
+  } else {
+  "No existen beneficiarios condicionados para el pago en base a los parámetros indicados."
+  }
+})`
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+renderDataTable({
+  datatable(datos()[datos()$calificaTotal == "Condicionado",c(7:8,41,43,42,44)], 
+            caption = htmltools::tags$caption(
+              style = 
+                'caption-side: bottom; 
+                text-align: left; 
+                font-size: 16px',
+              'Tabla 9: ', 
+              htmltools::em('Beneficiarios condicionados para el pago')
+              ),
+  rownames = FALSE,
+  colnames = c('Cédula','Nombre','Sobrevivencia','Aprobación sobrevivencia', 'Densidad', 'Aprobación densidad'),
+  options = list(pageLength=7,extensions = 'FixedColumns',
+                 searching = FALSE,
+                 lengthChange = FALSE,
+                 info = FALSE
+                 )
+  )
+})
+
+```
+
+
+`r reactive({
+  if(noAprobadosNum()[1,1] > 0) {
+  texto02 <- "Lamentablemente los siguientes beneficiarios no obtendrán la aprobación para el pago en el periódo descrito. A continuación se indica la información de sobrevivencia y densidad correspondientes:"
+  } else {
+  "En el presente período no tenemos beneficiarios que no califiquen al pago."
+  }
+})`
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+renderDataTable({
+  datatable(datos()[datos()$calificaTotal == "No se aprueba",c(7:8,41,43,42,44)], 
+            caption = htmltools::tags$caption(
+              style = 
+                'caption-side: bottom; 
+                text-align: left; 
+                font-size: 16px',
+              'Tabla 10: ', 
+              htmltools::em('Beneficiarios no aptos para el pago')
+              ),
+  rownames = FALSE,
+  colnames = c('Cédula','Nombre','Sobrevivencia','Aprobación sobrevivencia', 'Densidad', 'Aprobación densidad'),
+  options = list(pageLength=7,extensions = 'FixedColumns',
+                 searching = FALSE,
+                 lengthChange = FALSE,
+                 info = FALSE
+                 )
+  )
+})
+
+```
+
+
+
+<!-- ```{r, echo = FALSE} -->
+
+<!-- inputPanel( -->
+<!--   radioButtons("aprobar",label="Recomienda el pago",choices=c("Si","No"),inline=T) -->
+<!-- ) -->
+
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- text <- reactive({ -->
+<!--   if(input$aprobar == "Si") {"En base a la información presentada, tanto en los estados de las plantas como en el estado general, se recomienda la aprobación del pago del incentivo correspondiente al período en análisis." -->
+<!--     } else { -->
+<!--     "En base a la información presentada, tanto en los estados de las plantas como en el estado general, no se recomienda la aprobación del pago del incentivo correspondiente al período en análisis." -->
+<!--   } -->
+<!-- }) -->
+<!-- ``` -->
+
+<!-- `r reactive(text())` -->
+
+<br/>
+
+Atentamente
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+<br/>
+Fecha:
+
+
+
+
