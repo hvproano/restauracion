@@ -1,0 +1,702 @@
+---
+title: |
+  ![](logoPROAmazonia_Altropico.png){width=10in}  
+  Restauración forestal - Proyecto PROAmazonía
+output: 
+  html_document:
+    runtime: shiny
+---
+
+# Informe de verificación
+
+```{r setup, include=FALSE, echo=FALSE, warning=FALSE, fig.height=50, out.height="100%"}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(dplyr)
+library(httr)
+library(jsonlite)
+library(readxl)
+library(readr)
+library(DT)
+library(tidyr)
+library(ggplot2)
+library(shinyWidgets)
+library(shinydashboard)
+library(htmltools)
+library(openxlsx)
+options(OutDec = ",")
+
+
+##    Carga de información
+
+```
+
+
+```{r}
+
+
+#api_k <- "d88b4014ef3c3be7fc954ee7a00d065f8d71d78a"
+
+#form_id <- "a3j5sHQug9Z8P4foo7m42K"
+
+form_activa <- "aHYQAEtjNCjxeM6rS9DosX"
+form_pasiva <- "a3j5sHQug9Z8P4foo7m42K"
+form_act_parc <- "a88v9EVVoMbapDwyLhccLk"
+
+username = "rest_2023"
+password = "Q1w2e3abcvpr"
+
+url_activa <- paste0("https://kf.kobotoolbox.org/api/v2/assets/", form_activa, "/data.json")
+url_pasiva <- paste0("https://kf.kobotoolbox.org/api/v2/assets/", form_pasiva, "/data.json")
+url_act_parc <- paste0("https://kf.kobotoolbox.org/api/v2/assets/", form_act_parc, "/data.json")
+
+resp_activa <- GET(url_activa, authenticate(username, password))
+resp_pasiva <- GET(url_pasiva, authenticate(username, password))
+resp_act_parc <- GET(url_act_parc, authenticate(username, password))
+
+rm(form_activa, form_pasiva, form_act_parc, username, password, url_activa, url_act_parc, url_pasiva)
+comuna<-c('PKR','PKR','Canelos','Canelos','PKR','PKR','PKR')
+nombre<-c('Mónica Cristina Grefa Alvarado','Leonidas Moises Narváez Andi','Carmen Alicia Nango Mayancha','Shirley Lorena Noa Illanes','Fidel Mesías Pérez Aguinda','Shiri Augusto Salazar Shiguango','Nataly Paola Shiguango Chimbo')
+cedula<-c('1500983059','1500632540','1600681322','2100866611','1500904121','1501043937','1500945629')
+celular<-c('0984926634','0991460502','0997253617','0979193151','0994617714','0997527873','0989892159')
+correo<-c('monica.grefa@yahoo.com','moisesnar2@gmail.com','carmennango4@hotmail.com','noasebas10@gmail.com','delsonperez.21@gmail.com','shiriasalazar12345@gmail.com','paoshito95@gmail.com')
+promotor <- data.frame(comuna = comuna, nombre = nombre, cedula = cedula, celular = celular, correo = correo)
+rm(comuna, nombre, cedula, celular, correo)
+
+base_predios <- read_excel("Base predios altropico_corregido.xlsx",
+                           sheet = "Predios_Altropico", col_types = c("text", "text", "text", "text", "text", "text", "text", "text", "text", "text", "numeric",
+                                                                      "numeric", "numeric", "numeric", "numeric", "text", "text")
+                           )
+
+################################################################
+###########
+###########     Restauración activa
+###########
+################################################################
+
+
+if (http_type(resp_activa) == "application/json") {
+  data <- fromJSON(content(resp_activa, "text", encoding = "UTF-8"))
+  df_predios <- as.data.frame(data$results)
+  
+  df_plantas <- df_predios %>%
+    unnest(InfoPlantas)
+  df_plantas = as.data.frame(df_plantas)
+  df_plantas <- as.data.frame(df_plantas[,!names(df_plantas) %in% c("_attachments", "_geolocation","_tags","_notes", "_validation_status")])
+  
+  df_predios <- df_predios[,!names(df_predios) %in% c("_attachments", "_geolocation","_tags","_notes", "_validation_status", "InfoPlantas")]
+  
+  df_predios$pred_cod <- ""
+  for (i in 1:ncol(df_predios)) {
+    if (grepl("predio",names(df_predios)[i])) {
+      for (j in 1:nrow(df_predios)) {
+        if (!is.na(df_predios[j,i])) {
+          df_predios[j,]$pred_cod <- df_predios[j,i]
+        }
+      }
+    }
+  }
+
+  rm(i,j)
+  df_predios <- df_predios %>%
+    select(-contains('predio'))
+  
+  df_plantas <- df_plantas %>%
+    select(-contains('predio'))
+  
+  cod_predios <- data.frame(uuid = df_predios$`_uuid`, pred_cod = df_predios$pred_cod)
+  
+  cod_predios <- cbind(cod_predios, read.table(text = as.character(cod_predios$pred_cod), sep = '-'))
+  
+  cod_predios$V1 <- gsub(' ','',cod_predios$V1)
+  cod_predios$V2 <- gsub(' R','R',cod_predios$V2)
+  cod_predios$V2 <- gsub('A ','A',cod_predios$V2)
+  
+  cod_predios <- cbind(cod_predios, read.table(text = as.character(cod_predios$V3), sep = ' '))
+  
+  names(cod_predios)[3] <- 'codigo'
+  names(cod_predios)[4] <- 'modalidad'
+  
+  cod_predios$V2 <- gsub(',','.',cod_predios$V2)
+  
+  names(cod_predios)[7] <- 'area'
+  cod_predios$area <- round(as.numeric(cod_predios$area),2)
+  
+  cod_predios <- cod_predios %>%
+    select(-contains('V'))
+  
+  df_plantas <-  df_plantas %>%
+    left_join(cod_predios, by=c(`_uuid` = "uuid"))
+  
+  df_predios <- df_predios %>%
+    left_join(cod_predios, by=c(`_uuid` = "uuid"))
+    
+  rm(cod_predios)
+  
+  df_plantas$path1 <- ifelse(is.na(df_plantas$`InfoPlantas/Foto_planta1`),'',
+                             paste0(
+                               "https://kc.kobotoolbox.org/media/original?media_file=hvproano%2Fattachments%2F9ed8536545d4485db8448d9137d3031e%2F",
+                               df_plantas$`_uuid`,
+                               "%2F",
+                               df_plantas$`InfoPlantas/Foto_planta1`
+                               )
+                             )
+  df_plantas$path2 <- ifelse(is.na(df_plantas$`InfoPlantas/Foto_planta2`),'',
+                             paste0(
+                               "https://kc.kobotoolbox.org/media/original?media_file=hvproano%2Fattachments%2F9ed8536545d4485db8448d9137d3031e%2F",
+                               df_plantas$`_uuid`,
+                               "%2F",
+                               df_plantas$`InfoPlantas/Foto_planta2`
+                               )
+                             )
+  
+  df_plantas$`InfoPlantas/grupoEspecie/Especie` <- ifelse(df_plantas$`InfoPlantas/grupoEspecie/Especie` == "fabaceae___inga_sp____ilta_","fabaceae-inga_sp-ilta",
+                                                          ifelse(df_plantas$`InfoPlantas/grupoEspecie/Especie` == "ceibo", "--ceibo",
+                                                                 df_plantas$`InfoPlantas/grupoEspecie/Especie`))
+  
+  
+  
+  df_plantas$especie2 <- ifelse(
+    df_plantas$`InfoPlantas/grupoEspecie/Especie`=="otra", paste0("--",df_plantas$`InfoPlantas/grupoEspecie/Especie_no_en_lista`),
+    df_plantas$`InfoPlantas/grupoEspecie/Especie`
+  )
+  
+  especies <- data.frame(esp_ori = unique(df_plantas$especie2))
+  especies <- cbind(especies, read.table(text = as.character(especies$esp_ori), sep = '-'))
+  
+  names(especies)[2] <- 'familia'
+  names(especies)[3] <- 'cientifico'
+  names(especies)[4] <- 'comun'
+  
+  df_plantas <- df_plantas %>%
+    left_join(especies, by = c("especie2"="esp_ori"))
+  
+  df_plantas$altura <- as.numeric(df_plantas$`InfoPlantas/Altura`)
+  
+  predios_lev <- df_plantas %>%
+    group_by(usuario, today, pred_cod) %>%
+    summarise(plantas = n(),
+              area = min(area),
+              .groups = 'drop')
+
+predios_lev %>%
+  group_by(today, usuario) %>%
+  summarise(predios = n_distinct(pred_cod),
+  hect = sum(area),
+  plantas=sum(plantas),
+            .groups = 'drop'
+            ) %>%
+  left_join(promotor[,c(2,3)], by=c("usuario"="cedula")) %>%
+  write.xlsx(file = paste0("activa_",Sys.Date(),".xlsx"))
+
+} else {
+  print("Error al obtener los datos: ", resp_activa$status_code)
+}
+
+
+################################################################
+###########
+###########     Restauración activa parcelas
+###########
+################################################################
+
+
+if (http_type(resp_act_parc) == "application/json") {
+  data_p <- fromJSON(content(resp_act_parc, "text", encoding = "UTF-8"))
+  df_predios_p <- as.data.frame(data_p$results)
+  
+  df_parcelas <- df_predios_p %>%
+    unnest(parcelas)
+  
+  df_parcelas <- as.data.frame(df_parcelas)
+  
+  df_plantas_p <- df_parcelas %>%
+    unnest(`parcelas/InfoPlantas`)
+  
+  df_parcelas <- as.data.frame(df_parcelas[,!names(df_parcelas) %in% c("_attachments", "_geolocation","_tags","_notes", "_validation_status", "parcelas/InfoPlantas")])
+  
+  df_plantas_p <- as.data.frame(df_plantas_p[,!names(df_plantas_p) %in% c("_attachments", "_geolocation","_tags","_notes", "_validation_status")])
+  
+  df_predios_p <- df_predios_p[,!names(df_predios_p) %in% c("_attachments", "_geolocation","_tags","_notes", "_validation_status", "parcelas")]
+  
+  df_predios_p$pred_cod <- ""
+  
+  for (i in 1:ncol(df_predios_p)) {
+    if (grepl("predio",names(df_predios_p)[i])) {
+      for (j in 1:nrow(df_predios_p)) {
+        if (!is.na(df_predios_p[j,i])) {
+          df_predios_p[j,]$pred_cod <- df_predios_p[j,i]
+        }
+      }
+    }
+  }
+
+  rm(i,j)
+  df_predios_p <- df_predios_p %>%
+    select(-contains('predio'))
+  
+  df_parcelas <- df_parcelas %>%
+    select(-contains('predio'))
+  
+  df_plantas_p <- df_plantas_p %>%
+    select(-contains('predio'))
+  
+  cod_predios <- data.frame(uuid = df_predios_p$`_uuid`, pred_cod = df_predios_p$pred_cod)
+  cod_predios <- cbind(cod_predios, read.table(text = as.character(cod_predios$pred_cod), sep = '-'))
+  cod_predios$V1 <- gsub(' ','',cod_predios$V1)
+  cod_predios$V2 <- gsub(' R','R',cod_predios$V2)
+  cod_predios$V2 <- gsub('A ','A',cod_predios$V2)
+  cod_predios <- cbind(cod_predios, read.table(text = as.character(cod_predios$V3), sep = ' '))
+  names(cod_predios)[3] <- 'codigo'
+  names(cod_predios)[4] <- 'modalidad'
+  cod_predios$V2 <- gsub(',','.',cod_predios$V2)
+  names(cod_predios)[7] <- 'area'
+  cod_predios$area <- as.numeric(cod_predios$area)
+  cod_predios <- cod_predios %>%
+    select(-contains('V'))
+  cod_predios$modalidad = "RESTAURACION ACTIVA PARCELAS"
+  
+  df_plantas_p <-  df_plantas_p %>%
+    left_join(cod_predios, by=c(`_uuid` = "uuid"))
+  
+  df_predios_p <- df_predios_p %>%
+    left_join(cod_predios, by=c(`_uuid` = "uuid"))
+  
+  df_parcelas <- df_parcelas %>%
+    left_join(cod_predios, by = c(`_uuid` = "uuid"))
+    
+  rm(cod_predios) 
+  
+  df_plantas_p$path1 <- ifelse(is.na(df_plantas_p$`parcelas/InfoPlantas/Foto_planta1`),'',
+                             paste0(
+                               "https://kc.kobotoolbox.org/media/original?media_file=hvproano%2Fattachments%2F9ed8536545d4485db8448d9137d3031e%2F",
+                               df_plantas_p$`_uuid`,
+                               "%2F",
+                               df_plantas_p$`parcelas/InfoPlantas/Foto_planta1`
+                               )
+                             )
+  df_plantas_p$path2 <- ifelse(is.na(df_plantas_p$`parcelas/InfoPlantas/Foto_planta2`),'',
+                             paste0(
+                               "https://kc.kobotoolbox.org/media/original?media_file=hvproano%2Fattachments%2F9ed8536545d4485db8448d9137d3031e%2F",
+                               df_plantas_p$`_uuid`,
+                               "%2F",
+                               df_plantas_p$`parcelas/InfoPlantas/Foto_planta2`
+                               )
+                             )
+  predios_lev_p <- df_plantas_p %>%
+    group_by(usuario, today, pred_cod) %>%
+    summarise(plantas = n(),
+              area = min(area),
+              .groups = 'drop')
+  
+  parcelas_lev = df_parcelas %>%
+    group_by(today, username, pred_cod) %>%
+    summarise(parcelas = n(),
+              .groups = 'drop')
+  
+  predios_lev_p <- predios_lev_p %>%
+    left_join(parcelas_lev, by=c("today"="today", "usuario"="username", "pred_cod"="pred_cod"))
+ 
+predios_lev_p %>%
+  filter (today >= "2023-05-05") %>%
+  group_by(today, usuario) %>%
+  summarise(predios = n_distinct(pred_cod),
+  hect = sum(area),
+  plantas=sum(plantas),
+  parcelas = sum(parcelas),
+            .groups = 'drop'
+            ) %>%
+  left_join(promotor[,c(2,3)], by=c("usuario"="cedula")) %>%
+  write.xlsx(file = paste0("activa_parcelas_",Sys.Date(),".xlsx"))
+
+} else {
+  print("Error al obtener los datos: ", resp_activa$status_code)
+}
+
+
+
+################################################################
+###########
+###########     Restauración pasiva
+###########
+################################################################
+
+
+if (http_type(resp_pasiva) == "application/json") {
+  data_pas <- fromJSON(content(resp_pasiva, "text", encoding = "UTF-8"))
+  df_predios_pas <- as.data.frame(data_pas$results)
+  
+  df_punto <- df_predios_pas %>%
+    unnest(pto_control)
+  
+  df_punto <- as.data.frame(df_punto)
+  
+  df_punto <- as.data.frame(df_punto[,!names(df_punto) %in% c("_attachments", "_geolocation","_tags","_notes", "_validation_status")])
+  
+  df_predios_pas <- df_predios_pas[,!names(df_predios_pas) %in% c("_attachments", "_geolocation","_tags","_notes", "_validation_status", "pto_control")]
+  
+  df_predios_pas$pred_cod <- ""
+  
+  for (i in 1:ncol(df_predios_pas)) {
+    if (grepl("predio",names(df_predios_pas)[i])) {
+      for (j in 1:nrow(df_predios_pas)) {
+        if (!is.na(df_predios_pas[j,i])) {
+          df_predios_pas[j,]$pred_cod <- df_predios_pas[j,i]
+        }
+      }
+    }
+  }
+
+  rm(i,j)
+  df_predios_pas <- df_predios_pas %>%
+    select(-contains('predio'))
+  
+  df_punto <- df_punto %>%
+    select(-contains('predio'))
+  
+  
+  cod_predios <- data.frame(uuid = df_predios_pas$`_uuid`, pred_cod = df_predios_pas$pred_cod)
+  cod_predios <- cbind(cod_predios, read.table(text = as.character(cod_predios$pred_cod), sep = '-'))
+  cod_predios$V1 <- gsub(' ','',cod_predios$V1)
+  cod_predios$V2 <- gsub(' R','R',cod_predios$V2)
+  cod_predios$V2 <- gsub('A ','A',cod_predios$V2)
+  cod_predios <- cbind(cod_predios, read.table(text = as.character(cod_predios$V3), sep = ' '))
+  names(cod_predios)[3] <- 'codigo'
+  names(cod_predios)[4] <- 'modalidad'
+  cod_predios$V2 <- gsub(',','.',cod_predios$V2)
+  names(cod_predios)[7] <- 'area'
+  cod_predios$area <- as.numeric(cod_predios$area)
+  cod_predios <- cod_predios %>%
+    select(-contains('V'))
+  
+  
+  df_predios_pas <- df_predios_pas %>%
+    left_join(cod_predios, by=c(`_uuid` = "uuid"))
+  
+  df_punto <- df_punto %>%
+    left_join(cod_predios, by = c(`_uuid` = "uuid"))
+    
+  rm(cod_predios)
+  
+  
+  df_punto$path1 <- ifelse(is.na(df_punto$`pto_control/Foto_1_punto_de_control`),'',
+                             paste0(
+                               "https://kc.kobotoolbox.org/media/original?media_file=hvproano%2Fattachments%2F0c3abf28352043ce93cd3d4b2d72158f%2F",
+                               df_punto$`_uuid`,
+                               "%2F",
+                               df_punto$`pto_control/Foto_1_punto_de_control`
+                               )
+                             )
+  df_punto$path2 <- ifelse(is.na(df_punto$`pto_control/Foto_2_punto_de_control`),'',
+                             paste0(
+                               "https://kc.kobotoolbox.org/media/original?media_file=hvproano%2Fattachments%2F0c3abf28352043ce93cd3d4b2d72158f%2F",
+                               df_punto$`_uuid`,
+                               "%2F",
+                               df_punto$`pto_control/Foto_2_punto_de_control`
+                               )
+                             )
+  
+  predios_lev_pas <- df_punto %>%
+    group_by(username, today, pred_cod) %>%
+    summarise(puntos = n(),
+              area = min(area),
+              .groups = 'drop')
+
+predios_lev_pas %>%
+  filter (today >= "2023-04-20") %>%
+  group_by(today, username) %>%
+  summarise(predios = n_distinct(pred_cod),
+            puntos = sum(puntos),
+            hect = sum(area),
+            .groups = 'drop'
+            ) %>%
+  left_join(promotor[,c(2,3)], by=c("username"="cedula")) %>%
+  write.xlsx(file = paste0("pasiva_",Sys.Date(),".xlsx"))
+
+} else {
+  print("Error al obtener los datos: ", resp_activa$status_code)
+}
+
+
+
+
+```
+
+
+```{r}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+
+```{r}
+
+inputPanel(
+  dateRangeInput('fechas','Fechas ',
+                 format = "dd/mm/yyyy", 
+                 startview = "month", 
+                 weekstart = 0,
+                 language = "es", 
+                 separator = " - ", 
+                 width = NULL, 
+                 start = as.Date("2023-04-01"),
+                 end = as.Date("2023-12-31")
+                 ),
+
+  selectInput("usuario", label = "Promotor",
+              choices = sort(unique(promotor$nombre)),
+              selected = ""),
+  
+  uiOutput('usuario'),
+  
+
+  uiOutput('propietario'),
+
+  
+  actionButton("generar_reporte", "Generar Reporte")
+)
+
+propietarios <- reactive({
+  unique(df_predios[df_predios$username == promotor[promotor$nombre == input$usuario,3] &
+                                               as.Date(df_predios$today) >= as.Date(input$fechas[1]) &
+                                                 as.Date(df_predios$today) <= as.Date(input$fechas[2])
+                                               ,]$`group_iw2gi26/Propietario`)
+})
+
+output$usuario <- renderUI({
+  selectInput("propietario", label = "Propietario",
+              choices = propietarios(),
+              selected = "")
+})
+
+
+predios <- reactive({
+  unique(df_predios[df_predios$username == promotor[promotor$nombre == input$usuario,3] &
+                                            as.Date(df_predios$today) >= as.Date(input$fechas[1]) &
+                                            as.Date(df_predios$today) <= as.Date(input$fechas[2]) &
+                                            df_predios$`group_iw2gi26/Propietario` == input$propietario
+                                               ,]$pred_cod.x)
+})
+
+output$propietario <- renderUI({
+  selectInput("predio", label = "Predio",
+              choices = predios(),
+              selected = "")
+})
+
+observeEvent(input$generar_reporte, {
+  # Lógica para generar el reporte
+#   library(rmarkdown)
+# 
+# # Ruta y nombre de archivo de salida
+# output_file <- file.path("~/Downloads", "informe.pdf")
+# 
+# # Renderizar el archivo R Markdown
+# rmarkdown::render("restauracion2023_v2.Rmd", output_format = "html_document", output_file = output_file)
+# 
+# # Generar el archivo PDF a partir del archivo HTML
+# webshot(output_file, output_file)
+
+})
+
+```
+
+## Información del predio
+
+```{r}
+
+predios_res <- reactive({
+  df_predios%>%
+    filter(pred_cod.x == input$predio) %>%
+    select(codigo, area, today) %>%
+    distinct() %>%
+    left_join(base_predios[,c(2,5,6,7,8,12,16,9,10)], by = c("codigo"="pred_cod")) 
+})
+
+```
+
+El predio monitoreado (`r reactive(predios_res()$codigo)`), ubicado en la provincia de `r reactive(predios_res()$provincia)`, cantón `r reactive(predios_res()$canton)`, parroquia `r reactive(predios_res()$parroquia)` del `r reactive(predios_res()$sector)`, cuenta con una superficie de `r reactive(predios_res()$area.x)` hectáreas. El monitoreo se efectuó el `r reactive(predios_res()$today)`
+
+<br>
+
+## Plantas verificadas
+
+En este predio se ha verificado un total de `r reactive(nrow(df_plantas[df_plantas$pred_cod==input$predio,]))`, a continuación se indica su distribución según la especie, se informa además la altura promedio registrada.
+<br><br>
+
+```{r}
+
+datos_reactivos <- reactive({
+    df_plantas %>%
+      filter(pred_cod == input$predio) %>%
+      group_by(familia, cientifico, comun) %>%
+      summarise(cantidad = n(),
+                altura_prom = round(mean(altura),0),
+                .groups = 'drop') %>%
+      arrange(desc(cantidad)) %>%
+      rename(Familia = familia, 'Nombre científico' = cientifico, 'Nombre común' = comun, Plantas = cantidad,
+             'Altura promedio' = altura_prom)
+  })
+
+renderDataTable(server=FALSE, {
+  datatable(datos_reactivos(), 
+            caption = htmltools::tags$caption(
+              style = 
+                'caption-side: bottom; 
+                text-align: left; 
+                font-size: 14px',
+              'Tabla 1: ', 
+              htmltools::em('Plantas verificadas')
+              ),
+  rownames = FALSE,
+  colnames = c('Familia','Nombre científico', 'Nombre común', 'Plantas', 'Altura promedio'),
+  extensions = 'Buttons',
+  options = list(pageLength=10,
+                 extensions = 'FixedColumns',
+                 searching = TRUE,
+                 lengthChange = FALSE,
+                 info = FALSE,
+                 autoWidth = TRUE,
+                 dom = 'tB',
+                 buttons = c('copy', 'excel', 'pdf')
+                 )
+  )
+})
+```
+<br>
+
+## Estado fitosanitario
+
+De igual manera, se ha observado el estado fitosanitario de cada una de las plantas verificadas, a continuación los resultados.
+
+```{r}
+estado_fitosan <- reactive({
+    df_plantas %>%
+      filter(pred_cod == input$predio) %>%
+      group_by(`InfoPlantas/Estado_fitosanitario`) %>%
+      summarise(cantidad = n(),
+                porcent = round(n()/nrow(df_plantas[df_plantas$pred_cod == input$predio,])*100,0),
+                pct_total = paste0(round(n()/nrow(df_plantas[df_plantas$pred_cod == input$predio,])*100,0),"%"),
+                .groups = 'drop') %>%
+      arrange(`InfoPlantas/Estado_fitosanitario`) %>%
+      rename(Estado = `InfoPlantas/Estado_fitosanitario`, Plantas = cantidad, Porcentaje = pct_total)
+  })
+  
+  renderTable({
+    estado_fitosan() %>%
+      select(1,2,4)
+  })
+```
+<br>
+
+## Mantenimiento
+
+En cada planta se observó si el beneficiario ha realizado el mantenimiento respectivo, se registró si se realizó, o no, mantenimiento, obteniéndose la siguiente información.
+
+```{r}
+
+df_manten <- reactive({
+    df_plantas %>%
+    filter(pred_cod == input$predio) %>%
+    group_by(`InfoPlantas/mantenimiento`) %>%
+    summarise(cantidad = n(),
+              porcent = round(n()/nrow(df_plantas[df_plantas$pred_cod == input$predio,])*100,0),
+              pct_total = paste0(round(n()/nrow(df_plantas[df_plantas$pred_cod == input$predio,])*100,0),"%"),
+              .groups = 'drop') %>%
+    arrange(desc(`InfoPlantas/mantenimiento`)) %>%
+    rename(Mantenimiento = `InfoPlantas/mantenimiento`, Plantas = cantidad, Porcentaje = pct_total)
+  })
+  
+  renderTable({
+    df_manten() %>%
+      select(1,2,4)
+  })
+  
+```
+<br>
+
+## Reposición
+
+```{r}
+
+porc_malo <- reactive({
+    ifelse(is.null(estado_fitosan()[estado_fitosan()$Estado == "malo",]$porcent), 0, estado_fitosan()[estado_fitosan()$Estado == "malo",]$porcent)
+  })
+  
+  texto_recomendacion <- reactive({
+    ifelse(is.na(porc_malo()) | porc_malo() <10, 
+           paste0("No se requiere efectuar una reposición de plantas, pues el estado fitosanitario es bueno en el ",
+                  estado_fitosan()[estado_fitosan()$Estado == "bueno",]$Porcentaje, " de plantas."),
+           paste0("Dado que el estado fitosanitario es malo en el ", estado_fitosan()[estado_fitosan()$Estado == "malo",]$Porcentaje,
+                  ", se recomienda procederefectuar la reposición de plantas.")
+           )
+  })
+
+```
+
+`r reactive(texto_recomendacion())`
+
+<br>
+
+## Conclusión y recomendación
+
+```{r}
+
+texto_conclusion <- reactive({
+    ifelse(df_manten()[df_manten()$Mantenimiento == "si",]$porcent <80, 
+           paste0("Se recomienda no pagar, debido a que la cantidad de plantas que han cumplido con el mantenimiento representa solo el ",
+                  df_manten()[df_manten()$Mantenimiento == "si",]$Porcentaje, ", el límite esperado es de 80%."),
+           paste0("Dado que el mantenimiento se ha realizado en el ", df_manten()[df_manten()$Mantenimiento == "si",]$Porcentaje, " de las plantas verificadas, se recomienda proceder con el pago al beneficiario." 
+           )
+    ) 
+  })
+  
+```
+
+`r reactive(texto_conclusion())`
+<br><br>
+
+<!-- Obtener la fecha actual -->
+<!-- fecha_actual <- Sys.Date() -->
+
+<!-- # Agregar espacio para la firma del técnico -->
+
+
+<style>
+.fecha_actual {
+  margin-bottom: 10px;
+}
+
+.linea-firma {
+  width: 30%;
+  height: 2px;
+  background-color: black;
+  margin: 20px 0;
+  text-align: left;
+}
+
+.nombre-tecnico {
+  margin-bottom: 10px;
+}
+
+.cedula-tecnico {
+  margin-top: 10px;
+}
+</style>
+
+<div class="fecha_actual">
+  Fecha: <span class="fecha-dinamica">`r Sys.Date()`</span>
+</div>
+Firma:
+<br><br><br>
+<div class="linea-firma"></div>
+<div class="nombre-tecnico">
+  <span class="nombre-dinamico">`r reactive(input$usuario)`</span>
+</div>
+<div class="cedula-tecnico">
+  CI:<span class="cedula-dinamica">`r reactive(promotor[promotor$nombre == input$usuario,]$cedula)`</span>
+</div>
+
+
+
+
